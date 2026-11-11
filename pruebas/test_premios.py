@@ -71,10 +71,10 @@ async def main():
     revisar("letrero antes que el cofre: se liga al cofre que llega 1.2 s después", len(p) == 1 and p[0]["cofre"] == 1, p)
     shutil.rmtree(tmp, ignore_errors=True)
 
-    # 3. Sin cofre tuyo en ±3 s: de un compañero, y no suma a tus premios.
+    # 3. Sin cofre tuyo en VENTANA_PREMIO: de un compañero, y suma a tus premios.
     c, tmp = nuevo()
     await letrero(c, 30, ["ENCONTRASTE", "ARTILUGIO DE", "ESPIRITU"])
-    await avanzar(c, 33.5)
+    await avanzar(c, 30 + contador.VENTANA_PREMIO + 0.5)
     p = premios(tmp)
     revisar("sin cofre tuyo: de un compañero, y sí suma a tus artilugios", len(p) == 1 and p[0]["cofre"] is None and p[0]["de"] != "tuyo" and c.premios, (p, c.premios))
     shutil.rmtree(tmp, ignore_errors=True)
@@ -93,7 +93,7 @@ async def main():
     c, tmp = nuevo()
     await letrero(c, 50, ["ACCESO A LA TIENDA", "PIRATA"])
     revisar("token sin encabezado: la alerta sale al instante", c.premio is not None and c.premio["pirata"] and c.token, c.premio)
-    await avanzar(c, 54)
+    await avanzar(c, 50 + contador.VENTANA_PREMIO + 0.5)
     p = premios(tmp)
     revisar("token sin cofre tuyo: queda como de un compañero (igual te da el acceso)", len(p) == 1 and p[0]["de"] != "tuyo" and p[0].get("token_pirata"), p)
     shutil.rmtree(tmp, ignore_errors=True)
@@ -128,4 +128,38 @@ async def caso_texto_ajeno():
 
 
 asyncio.run(caso_texto_ajeno())
+
+
+# 8. Lecturas a medias del mismo letrero, y un cosmético que el letrero nombra distinto que la tienda.
+async def caso_lecturas_a_medias():
+    # El OCR se come «ARTILUGIO» 4 s después: sigue siendo el mismo premio, no uno de un compañero.
+    c, tmp = nuevo()
+    c.contar_cofre("COFRE", ZONA, 299.5)
+    await letrero(c, 300, ["ENCONTRASTE", "ARTILVGIO DE", "ESPIRITU"])
+    await letrero(c, 303.8, ["ENCONTRASTE", "DE ESPIRITU"])
+    await avanzar(c, 312)
+    p = premios(tmp)
+    revisar("«DE ESPIRITU» después del artilugio: el mismo premio", len(p) == 1 and p[0]["de"] == "tuyo", p)
+    shutil.rmtree(tmp, ignore_errors=True)
+    # El Cadillac sale como «CALCOMANÍA DORADA PARA AUTO», 3.2 s después de su cofre, y 6 s después se
+    # lee pegado al aviso de la tormenta.
+    c, tmp = nuevo()
+    c.semana = json.loads((Path(contador.__file__).parent / "ejemplos" / "semana.json").read_text(encoding="utf-8"))
+    c.contar_cofre("COFRE", ZONA, 400.0)
+    await letrero(c, 403.2, ["ENCONTRASTE", "CALCOMANíA DORADA", "-PARA AUTO"])
+    await letrero(c, 409.0, ["ENCONTRASTE", "DORADA", "NUEVA FASE DE L"])
+    await avanzar(c, 420)
+    p = premios(tmp)
+    revisar("calcomanía del Cadillac: un premio, tuyo, y marca el Cadillac",
+            len(p) == 1 and p[0].get("cosmetico") == "cadillac-blackwing" and p[0]["de"] == "tuyo" and "cadillac-blackwing" in c.cosmeticos, p)
+    shutil.rmtree(tmp, ignore_errors=True)
+    # Una lectura a medias del token no esconde la buena que llega después.
+    c, tmp = nuevo()
+    await letrero(c, 500, ["HAS ENCONTRADO", "ACCESO A LA"])
+    await letrero(c, 500.6, ["HAS ENCONTRADO", "ACCESO A LA TIENDA", "PIRATA"])
+    revisar("token después de una lectura a medias: sale la alerta", c.token and c.premio and c.premio["pirata"], c.premio)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+asyncio.run(caso_lecturas_a_medias())
 print(f"{sum(bien)}/{len(bien)} bien en total")

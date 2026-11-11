@@ -22,6 +22,7 @@ import unicodedata
 import winsound
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+from itertools import zip_longest
 from pathlib import Path
 
 import mss
@@ -55,9 +56,14 @@ PERIODO = 0.2  # segundos entre lecturas
 # El aviso se lee unos 2 s y desaparece de golpe; a media vida el OCR se salta a lo mucho una lectura.
 AVISO_CERRADO = 0.75  # segundos sin leer nada del aviso: se cerró, y el siguiente empieza de cero
 MISION_COFRES = re.compile(r"(\d{1,3})\s*/\s*(\d{1,3})\s*ABRE COFRES DE ESP")
+# Fortnite junta en una línea los cofres iguales del mismo aviso: «COFRE RARO X3» son tres. El OCR lee la
+# «X» como «X», «1» o «(» («COFRE RARO 13», «COFRE RARO '(2»); un número suelto («COFRE 9») es basura.
+MULTIPLICADOR = re.compile(r"(?:X|1|\()\s*([2-9])(?!\d)")
 ESPIRITU = "COFRE DE ESPIRITUS"
 ROTO = "COFRE ROTO"
-VENTANA_PREMIO = 3  # s entre tu cofre y su letrero de premio; fuera de eso es de un compañero
+# s entre tu cofre y su letrero de premio; fuera de eso es de un compañero. El letrero tarda en salir:
+# el de la calcomanía del Cadillac llegó 3.2 s después de su cofre.
+VENTANA_PREMIO = 5
 # Para revisar lo que lee en una PC nueva: anota cada cambio del aviso de PE con su foto en
 # `datos/diagnostico/` (se guardan las últimas DIAG_MAX).
 DIAGNOSTICO = bool(CONFIG["diagnostico"])
@@ -86,17 +92,34 @@ def norm(texto: str) -> str:
     return re.sub(r"\s+", " ", sin_acentos).upper().strip()
 
 
-def tipo_de_cofre(linea: str) -> str | None:
-    """«COFRE», «COFRE RARO» o «COFRE DE ESPIRITUS»; None si la línea no es de un cofre."""
-    palabras = re.findall(r"[A-Z]{2,}", norm(linea))
-    if not palabras or palabras[0] != "COFRE":  # «COFRES» es una misión, no un cofre
+def tipo_de_cofre(linea: str) -> tuple[str, int] | None:
+    """El tipo de cofre de una línea del aviso («COFRE», «COFRE RARO» o «COFRE DE ESPIRITUS») y cuántos
+    trae («COFRE RARO X3» son tres); None si la línea no es de un cofre."""
+    texto = norm(linea.replace("×", "X"))
+    palabras = re.findall(r"[A-Z]{2,}", texto)
+    # «COFRES» es una misión, no un cofre; «COFREX2» es un cofre con su «X2» pegada.
+    if not palabras or not palabras[0].startswith("COFRE") or palabras[0].startswith("COFRES"):
         return None
-    resto = " ".join(palabras[1:])
+    resto = " ".join(palabras)[len("COFRE") :]
+    m = MULTIPLICADOR.search(texto, texto.find("COFRE") + len("COFRE"))
+    cuantos = int(m.group(1)) if m else 1
     if "RARO" in resto:
-        return "COFRE RARO"
+        return "COFRE RARO", cuantos
     if "ESPIRIT" in resto:
-        return "COFRE DE ESPIRITUS"
-    return "COFRE"
+        return ESPIRITU, cuantos
+    return "COFRE", cuantos
+
+
+def parecidos(a: str, b: str) -> bool:
+    """Dos lecturas del mismo letrero: casi el mismo texto, o una palabra larga en común («DORADA»)."""
+    largas = lambda t: set(re.findall(r"[A-Z]{5,}", t))  # noqa: E731
+    return SequenceMatcher(None, a, b).ratio() > 0.75 or bool(largas(a) & largas(b))
+
+
+def pe_del_aviso(lineas: list[str]) -> int | None:
+    """Los PE que suma el aviso («+3850 PE»): crecen mientras el aviso sigue abierto."""
+    pes = [int(m.group(1)) for l in lineas if (m := re.search(r"\+\s*(\d{2,5})\s*PE\b", norm(l)))]
+    return max(pes) if pes else None
 
 
 def partida_actual() -> tuple[str, bool, float] | None:
@@ -194,7 +217,7 @@ class Contador:
         self.fuente_tipo = "aviso"
         self.recien: float | None = None  # cuándo se contó el último cofre, para que el número brille
         self.premio: dict | None = None  # el último premio, para la franja del recuadro
-        self.premio_pendiente: tuple[dict, float] | None = None  # premio esperando su cofre (±3 s)
+        self.premio_pendiente: tuple[dict, float] | None = None  # premio esperando su cofre (VENTANA_PREMIO)
         self.premios = self._contar_premios()
         # Lo que falta de la semana (semana.json); se marca al salir en un letrero de premio, tuyo o
         # de un compañero, porque el equipo comparte los premios.
@@ -207,9 +230,11 @@ class Contador:
                     self.cosmeticos.add(clave)
         # El token sale una vez por cuenta, y el de un compañero también te da el acceso.
         self.token = self.f_premios.exists() and '"token_pirata": true' in self.f_premios.read_text(encoding="utf-8")
-        self.premios_vistos: dict[str, float] = {}
-        self.previo: list[str] = []  # líneas de cofre de la lectura anterior
-        self.contados: list[str] = []  # líneas del aviso en pantalla que ya se contaron
+        self.premios_vistos: dict[str, tuple[float, str | None]] = {}  # letrero → (última vez, qué premio es)
+        self.previo: list[tuple[str, int]] = []  # líneas de cofre de la lectura anterior: (tipo, cuántos)
+        self.contados: list[tuple[str, int]] = []  # líneas del aviso en pantalla y cuántos ya se contaron
+        self.pe_previo: int | None = None  # los PE de la lectura anterior
+        self.pe_aviso: int | None = None  # los PE más altos del aviso en pantalla, leídos dos veces seguidas
         self.aviso_visto = float("-inf")  # última vez que se leyó algo del aviso
         self.zona_xp: np.ndarray | None = None
         # La misión de cofres de espíritu como red: cada subida se empareja con un cofre de espíritu
@@ -358,7 +383,7 @@ class Contador:
         if self.tick % 2 == 0:  # el letrero dura varios segundos y la misión cambia poco
             await self._leer_letrero(frame, leer, ahora)
             await self._leer_mision(recortar(frame, "mision"), leer, ahora)
-        # Un premio sin cofre tuyo en ±3 s: lo abrió un compañero (o fue un cofre roto, que no se cuenta).
+        # Un premio sin cofre tuyo en VENTANA_PREMIO: lo abrió un compañero, o salió de un cofre roto.
         if self.premio_pendiente and ahora - self.premio_pendiente[1] > VENTANA_PREMIO:
             premio, _ = self.premio_pendiente
             self.premio_pendiente = None
@@ -370,58 +395,79 @@ class Contador:
             self.contar_cofre(ESPIRITU, zona, ahora, fuente="misión")
         self.espiritus_sin_mision = [t for t in self.espiritus_sin_mision if ahora - t < 6]
 
-    def _desfase(self, estable: list[str]) -> int:
+    def _desfase(self, tipos: list[str]) -> int:
         """Si el aviso largo perdió sus primeras líneas al crecer, cuántas perdió; 0 si no es eso."""
-        if len(self.contados) < 5 or len(estable) < 4:
+        contados = [t for t, _ in self.contados]
+        if len(contados) < 5 or len(tipos) < 4:
             return 0
-        for k in range(1, len(self.contados)):
-            resto = self.contados[k:]
-            m = min(len(resto), len(estable))
-            if resto[:m] == estable[:m]:
+        for k in range(1, len(contados)):
+            resto = contados[k:]
+            m = min(len(resto), len(tipos))
+            if resto[:m] == tipos[:m]:
                 return k
         return 0
 
     async def _leer_xp(self, zona: np.ndarray, leer, ahora: float) -> None:
         crudo = await leer(zona)
         realzado = await leer(realzar(zona))
-        # Las líneas de cofre de cada lectura, en el orden del aviso (cada cofre nuevo se agrega abajo).
-        # Se cuentan líneas y no tipos: a veces una lectura corta «COFRE RARO» a «COFRE», y el número
-        # de líneas no cambia por eso; el tipo de cada posición lo da la lectura más específica.
+        # Las líneas de cofre de cada lectura, en el orden del aviso (cada tipo nuevo se agrega abajo, y uno
+        # que se repite sube su «X2», «X3»). A veces una lectura corta «COFRE RARO X3» a «COFRE» o a
+        # «COFRE RARO», y el número de líneas no cambia por eso: de cada posición vale lo más específico.
         a = [t for t in map(tipo_de_cofre, crudo) if t]
         b = [t for t in map(tipo_de_cofre, realzado) if t]
         if len(a) == len(b):
-            tipos = [y if x == "COFRE" else x for x, y in zip(a, b)]
+            lineas = [((y[0] if x[0] == "COFRE" else x[0]), max(x[1], y[1])) for x, y in zip(a, b)]
         else:
-            tipos = max(a, b, key=len)
-        # Una línea vale cuando dos lecturas seguidas la leen igual: un error del OCR no se repite igual.
-        estable: list[str] = []
-        for x, y in zip(tipos, self.previo):
-            if x != y:
+            lineas = max(a, b, key=len)
+        # Una línea vale cuando dos lecturas seguidas leen el mismo tipo, y de cuántos trae, lo que lean
+        # las dos: un error del OCR no se repite igual.
+        estable: list[tuple[str, int]] = []
+        for (tipo, n), (tipo_previo, n_previo) in zip(lineas, self.previo):
+            if tipo != tipo_previo:
                 break
-            estable.append(x)
-        self.previo = tipos
-        hay_pe = any(re.search(r"\d\s*PE\b", norm(l)) for l in crudo + realzado)
-        if tipos or hay_pe:
+            estable.append((tipo, min(n, n_previo)))
+        self.previo = lineas
+        todas = crudo + realzado
+        pe = pe_del_aviso(todas)
+        pe_estable = pe if pe is not None and pe == self.pe_previo else None
+        self.pe_previo = pe
+        hay_pe = any(re.search(r"\d\s*PE\b", norm(l)) for l in todas)
+        if lineas or hay_pe:
             self.aviso_visto = ahora
         elif ahora - self.aviso_visto > AVISO_CERRADO:
-            self.contados = []
+            self.contados, self.pe_aviso = [], None
         self.zona_xp = zona
-        # Un aviso nuevo puede aparecer justo al cerrarse el anterior, sin hueco que lo separe: se nota
-        # porque sus líneas ya no coinciden con las contadas (rara, y luego espíritu en una bóveda).
+        # Un aviso nuevo puede aparecer justo al cerrarse el anterior, sin hueco que lo separe. Se nota
+        # porque sus PE bajan (3850 de «RARO X3, ESPÍRITUS» a 900 de otro «RARO», en una bóveda)...
+        if pe_estable is not None:
+            if self.pe_aviso is not None and pe_estable < self.pe_aviso:
+                if self.contados:
+                    self.evento("aviso_nuevo_por_pe", antes=self.contados, pe_antes=self.pe_aviso, pe_ahora=pe_estable)
+                    self.contados = []
+                self.pe_aviso = pe_estable
+            else:
+                self.pe_aviso = max(self.pe_aviso or 0, pe_estable)
+        # ...o porque sus líneas ya no coinciden con las contadas (rara, y luego espíritu).
         if estable and self.contados:
             n = min(len(estable), len(self.contados))
-            if estable[:n] != self.contados[:n]:
-                desfase = self._desfase(estable)
+            if [t for t, _ in estable[:n]] != [t for t, _ in self.contados[:n]]:
+                desfase = self._desfase([t for t, _ in estable])
                 if desfase:
                     self.evento("aviso_recorrido", quitadas=desfase, antes=self.contados, ahora=estable)
                     self.contados = self.contados[desfase:]
                 else:
                     self.evento("aviso_nuevo_sin_hueco", antes=self.contados, ahora=estable)
-                    self.contados = []
-        for tipo in estable[len(self.contados) :]:
-            self.contar_cofre(tipo, zona, ahora)
-        if len(estable) > len(self.contados):
-            self.contados = estable
+                    self.contados, self.pe_aviso = [], pe_estable
+        # Cada línea cuenta lo que creció desde la última vez: una nueva, todos sus cofres; una que pasó de
+        # «X2» a «X3», uno.
+        for i, (tipo, n) in enumerate(estable):
+            ya = self.contados[i][1] if i < len(self.contados) else 0
+            for _ in range(n - ya):
+                self.contar_cofre(tipo, zona, ahora)
+        self.contados = [
+            (c[0], max(c[1], e[1])) if c and e else (c or e)
+            for c, e in zip_longest(self.contados, estable)
+        ]
         if len(estable) >= 6:
             self.evento("aviso_largo", lineas=estable)  # por si Fortnite recorta la lista cuando crece
         if DIAGNOSTICO:
@@ -435,9 +481,8 @@ class Contador:
             etiquetas = sum(len(re.findall(r"[A-Z]", n)) >= 6 for n in normas)
             return etiquetas, sum("CONTENEDOR" in n for n in normas)
 
-        pes = [int(m.group(1)) for l in crudo + realzado if (m := re.search(r"\+\s*(\d{2,5})\s*PE\b", norm(l)))]
         etiquetas, contenedor = map(max, zip(resumen(crudo), resumen(realzado)))
-        firma = (max(pes) if pes else None, etiquetas, contenedor)
+        firma = (pe_del_aviso(crudo + realzado), etiquetas, contenedor)
         estable = firma == self.firma_previa
         self.firma_previa = firma
         if not estable or firma == self.firma_anotada or firma == (None, 0, 0):
@@ -471,30 +516,33 @@ class Contador:
         clave = norm(premio)
         if not premio:
             return
-        # El mismo letrero sigue en pantalla unos 6 s y el OCR lo lee cada vez un poco distinto
-        # («ARTILVGIO», «ARTILQGIO»): lo parecido dentro de 8 s es el mismo premio, y dos letreros de
-        # artilugio dentro de 8 s también (su texto es idéntico para los cinco).
-        for vista, cuando in self.premios_vistos.items():
-            if ahora - cuando < 8 and (
-                SequenceMatcher(None, vista, clave).ratio() > 0.75 or ("ARTIL" in vista and "ARTIL" in clave)
-            ):
-                self.premios_vistos[vista] = ahora
+        cosmetico = self._cosmetico_de(clave)
+        token = "PIRAT" in clave or "TIENDA" in clave  # aunque el OCR se coma alguna letra
+        artilugio = "ARTIL" in clave or "ESPIRIT" in clave  # «DE ESPIRITU» cuando se come «ARTILUGIO»
+        identidad = "token" if token else cosmetico["clave"] if cosmetico else "artilugio" if artilugio else None
+        # El mismo letrero sigue en pantalla unos 6 s y el OCR lo lee cada vez distinto («ARTILVGIO», «DE
+        # ESPIRITU», o «DORADA NUEVA FASE DE L» con el aviso de la tormenta pegado). Dentro de 8 s es el mismo
+        # premio si el texto dice el mismo premio (dos artilugios también: su texto es idéntico para los
+        # cinco); si no dice cuál es, si se parece. Un texto que sí lo dice no se descarta por parecido,
+        # para que el token no se pierda detrás de una lectura a medias («ACCESO A LA»).
+        for vista, (cuando, identidad_vista) in self.premios_vistos.items():
+            if ahora - cuando < 8 and (identidad == identidad_vista if identidad else parecidos(vista, clave)):
+                self.premios_vistos[vista] = (ahora, identidad_vista)
                 return
-        self.premios_vistos = {k: v for k, v in self.premios_vistos.items() if ahora - v < 8}
-        self.premios_vistos[clave] = ahora
+        self.premios_vistos = {k: v for k, v in self.premios_vistos.items() if ahora - v[0] < 8}
+        self.premios_vistos[clave] = (ahora, identidad)
         fecha = datetime.now()
         imagen = DATOS / "premios" / f"{fecha:%Y%m%d-%H%M%S}.jpg"
         guardar_jpg(recortar(frame, (760, 100, 1800, 900)), imagen)  # letrero con su ícono
         fila = {"fecha": fecha.isoformat(timespec="milliseconds"), "premio": premio, "imagen": imagen.name}
         # El texto es el mismo para los cinco artilugios: cuál fue lo dice el ícono.
-        if "ARTIL" in clave:
+        if artilugio:
             clave_art, distancia = artilugios.reconocer(recortar(frame, artilugios.ZONA_ICONO)[..., 2::-1])
             fila["artilugio"] = clave_art
             fila["distancia_icono"] = round(distancia, 3)
-        if cosmetico := self._cosmetico_de(clave):
+        if cosmetico:
             fila["cosmetico"] = cosmetico["clave"]
-        # El token: el texto trae «PIRATA» o «TIENDA» aunque el OCR se coma alguna letra.
-        if "PIRAT" in clave or "TIENDA" in clave:
+        if token:
             fila["token_pirata"] = True
             captura = DATOS / "premios" / f"token-{fecha:%Y%m%d-%H%M%S-%f}.png"
             Image.fromarray(frame[..., 2::-1]).save(captura)  # la pantalla completa, para la historia
@@ -502,8 +550,8 @@ class Contador:
             self.token = True
             for _ in range(3):
                 winsound.Beep(880, 250)
-        # Es tuyo si abriste un cofre en el mismo segundo o dos; el letrero puede salir antes de que el
-        # cofre se confirme, así que se espera hasta 3 s a que llegue.
+        # Es tuyo si abriste un cofre en los VENTANA_PREMIO s de antes; el letrero puede salir antes de que
+        # el cofre se confirme, así que se espera lo mismo a que llegue.
         if self.ultimo_cofre and ahora - self.ultimo_cofre[1] <= VENTANA_PREMIO:
             self._registrar_premio(fila, self.ultimo_cofre[0], ahora)
         else:

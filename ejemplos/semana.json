@@ -2,10 +2,10 @@
   "semana": 2,
   "artista": "Lil Uzi Vert",
   "termina": "2026-11-15",
-  "nota": "Lo que te falta de la semana. Va en semana.json, junto al programa, y se cambia cada semana. «buscar» son textos del letrero de premio que identifican cada cosmético; «clave» es el nombre de su ícono en assets/.",
+  "nota": "Lo que te falta de la semana. Va en semana.json, junto al programa, y se cambia cada semana. «buscar» son textos del letrero de premio que identifican cada cosmético, en mayúsculas y sin acentos; el letrero puede nombrarlo distinto que la tienda (el Cadillac sale como «CALCOMANÍA DORADA PARA AUTO»). «clave» es el nombre de su ícono en assets/.",
   "faltan": [
     {"clave": "traje-lil-uzi-dorado", "nombre": "Lil Uzi dorado", "buscar": ["ORO MACIZO", "SOLID GOLD"]},
     {"clave": "mochila-diamante-y-oro", "nombre": "Mochila", "buscar": ["ORO Y DIAMANTE", "DIAMANTE Y ORO"]},
-    {"clave": "cadillac-blackwing", "nombre": "Cadillac", "buscar": ["CADILLAC", "BLACKWING"]}
+    {"clave": "cadillac-blackwing", "nombre": "Cadillac", "buscar": ["CADILLAC", "BLACKWING", "PARA AUTO", "CALCOMANIA DORADA"]}
   ]
 }

@@ -78,7 +78,10 @@ con el número de semana, el artista y el día en que termina. El formato está 
   ponerle el suyo, bájalo de fortnite-api.com (con `language=es-419`, que da los nombres como salen en el
   juego), guárdalo en `assets/originales/<clave>.png` y corre
   `.venv\Scripts\python.exe preparar_assets.py <clave>`.
-- `buscar` lleva palabras del nombre del premio tal como sale en el letrero, en mayúsculas.
+- `buscar` lleva palabras del nombre del premio tal como sale en el letrero, en mayúsculas y sin acentos.
+  El letrero puede nombrarlo distinto que la tienda: el Cadillac de la semana 2 sale como «CALCOMANÍA
+  DORADA PARA AUTO». Si un premio sale y no se marca, su letrero está en `datos/premios/`: agrega a
+  `buscar` lo que dice.
 
 ### 5. Su PC → `config.json`
 
