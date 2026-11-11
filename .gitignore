@@ -1,0 +1,11 @@
+# Lo de cada persona: su configuración, su semana y su registro. Nunca va al repo.
+/config.json
+/semana.json
+/datos/
+
+# Las imágenes de donde salieron los íconos, y la hoja de estados de la primera versión.
+assets/originales/
+/estados.png
+
+.venv/
+__pycache__/

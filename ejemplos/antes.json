@@ -1,0 +1,12 @@
+{
+  "partidas_antes": 0,
+  "cofres_estimados": 0,
+  "artilugios_antes": {
+    "acelerador-de-extraccion": 0,
+    "extractor-portatil": 0,
+    "fuego-artificial-dorado": 0,
+    "localizador-de-espiritus": 0,
+    "localizador-de-suerte": 0
+  },
+  "nota": "Lo que llevabas antes de instalar el contador. Va en datos/antes.json; qué es cada clave, en README.md."
+}
