@@ -40,7 +40,8 @@ Haz las preguntas de una en una y escribe cada respuesta en su archivo en cuanto
    ```
    Si la persona no puede abrirla como administrador, otro camino es agregar el idioma «Español (México)»
    en Configuración › Hora e idioma › Idioma.
-4. **Las pruebas:** las tres de la sección «Pruebas» del README. Deben salir 8/8, 9/9 y 5/5.
+4. **Las pruebas:** las tres de la sección «Pruebas» del README. Cada una termina con su cuenta
+   (por ejemplo, «13/13 casos bien»), y las dos cifras deben ser iguales.
 
 ### 2. Fortnite
 
