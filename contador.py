@@ -542,11 +542,20 @@ class Contador:
             fila["distancia_icono"] = round(distancia, 3)
         if cosmetico:
             fila["cosmetico"] = cosmetico["clave"]
+        # La pantalla completa, de recuerdo: una por tipo de premio, porque los artilugios se repiten. Si la
+        # persona borra la de un tipo, se guarda la siguiente que salga. La del token, sin pérdida.
+        tipo = "token-pirata" if token else fila.get("cosmetico") or fila.get("artilugio") or (
+            "artilugio" if artilugio else re.sub(r"[^a-z0-9]+", "-", clave.lower()).strip("-"))
+        if not any((DATOS / "capturas").glob(f"*-{tipo}.*")):
+            captura = DATOS / "capturas" / f"{fecha:%Y%m%d-%H%M%S}-{tipo}.{'png' if token else 'jpg'}"
+            if token:
+                captura.parent.mkdir(parents=True, exist_ok=True)
+                Image.fromarray(frame[..., 2::-1]).save(captura)
+            else:
+                guardar_jpg(frame, captura)
+            fila["captura"] = captura.name
         if token:
             fila["token_pirata"] = True
-            captura = DATOS / "premios" / f"token-{fecha:%Y%m%d-%H%M%S-%f}.png"
-            Image.fromarray(frame[..., 2::-1]).save(captura)  # la pantalla completa, para la historia
-            fila["captura"] = captura.name
             self.token = True
             for _ in range(3):
                 winsound.Beep(880, 250)

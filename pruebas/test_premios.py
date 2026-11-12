@@ -61,6 +61,8 @@ async def main():
         await letrero(c, t, l)
     p = premios(tmp)
     revisar("letrero repetido por el OCR: 1 premio, tuyo, cofre #1", len(p) == 1 and p[0]["cofre"] == 1 and p[0]["de"] == "tuyo", p)
+    capturas = list((tmp / "capturas").glob("*.jpg"))
+    revisar("letrero repetido por el OCR: una sola captura de pantalla", len(capturas) == 1 and p[0].get("captura") == capturas[0].name, capturas)
     shutil.rmtree(tmp, ignore_errors=True)
 
     # 2. El letrero sale antes de que se confirme el cofre: espera y se liga al cofre.
@@ -84,7 +86,7 @@ async def main():
     c.contar_cofre("COFRE", ZONA, 39.5)
     await letrero(c, 40, ["A LA TIENDA", "HAS ENCONTRADO", "ACCESO A LA TIENDA", "PIRATA"])
     p = premios(tmp)
-    capturas = list((tmp / "premios").glob("token-*.png"))
+    capturas = list((tmp / "capturas").glob("*-token-pirata.png"))
     revisar("token con «HAS ENCONTRADO»: tuyo, con captura completa y CONSEGUIDO",
             len(p) == 1 and p[0].get("token_pirata") and p[0]["premio"] == "ACCESO A LA TIENDA PIRATA" and capturas and c.token, (p, capturas))
     shutil.rmtree(tmp, ignore_errors=True)
@@ -162,4 +164,36 @@ async def caso_lecturas_a_medias():
 
 
 asyncio.run(caso_lecturas_a_medias())
+
+
+# 9. La captura de pantalla completa es una por tipo de premio: los artilugios se repiten.
+async def caso_capturas():
+    c, tmp = nuevo()
+    reconocer = contador.artilugios.reconocer
+    tipos = iter(["acelerador-de-extraccion", "acelerador-de-extraccion", "localizador-de-suerte"])
+    contador.artilugios.reconocer = lambda rgb: (next(tipos), 0.1)
+    try:
+        for t in (600, 620, 640):
+            c.contar_cofre("COFRE", ZONA, t - 0.5)
+            await letrero(c, t, ["ENCONTRASTE", "ARTILUGIO DE", "ESPIRITU"])
+    finally:
+        contador.artilugios.reconocer = reconocer
+    p = premios(tmp)
+    capturas = sorted(f.name.split("-", 2)[2] for f in (tmp / "capturas").glob("*"))
+    revisar("dos aceleradores y un localizador: 3 premios y 2 capturas, una de cada uno",
+            len(p) == 3 and capturas == ["acelerador-de-extraccion.jpg", "localizador-de-suerte.jpg"] and "captura" not in p[1], (p, capturas))
+    # Si la persona borra la captura de un tipo, se guarda la siguiente que salga.
+    for f in (tmp / "capturas").glob("*-localizador-de-suerte.jpg"):
+        f.unlink()
+    contador.artilugios.reconocer = lambda rgb: ("localizador-de-suerte", 0.1)
+    try:
+        c.contar_cofre("COFRE", ZONA, 659.5)
+        await letrero(c, 660, ["ENCONTRASTE", "ARTILUGIO DE", "ESPIRITU"])
+    finally:
+        contador.artilugios.reconocer = reconocer
+    revisar("captura borrada: la guarda otra vez con el siguiente", list((tmp / "capturas").glob("*-localizador-de-suerte.jpg")), list((tmp / "capturas").iterdir()))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+asyncio.run(caso_capturas())
 print(f"{sum(bien)}/{len(bien)} bien en total")

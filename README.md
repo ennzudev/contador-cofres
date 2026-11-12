@@ -42,8 +42,11 @@ el juego (partidas, artilugios, premios de la semana) y deja el contador arranca
   mapeado a F13, una tecla que no existe en el teclado. Suena un pitido cuando entra.
 - **Antes de ver una repetición, apágalo** con `detener.cmd`: la repetición se ve igual que el juego y
   contaría sus cofres. Para prenderlo otra vez, `iniciar.cmd`.
-- **Si sale el token,** suenan tres pitidos, el recuadro se pinta de dorado y guarda una captura en
-  `datos/premios/`.
+- **La primera vez que sale cada premio** (cada artilugio, cada cosa de la semana y el token), guarda
+  una captura de la pantalla completa en `datos/capturas/`, de recuerdo, con el nombre del premio. Los
+  artilugios se repiten, pero se guarda una sola de cada uno. Si borras una, se guarda la siguiente que
+  salga.
+- **Si sale el token,** suenan tres pitidos y el recuadro se pinta de dorado.
 
 ## Qué es tuyo y qué es del repo
 
