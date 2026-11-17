@@ -24,6 +24,10 @@ ICONOS = [
     "traje-lil-uzi-dorado",
     "mochila-diamante-y-oro",
     "cadillac-blackwing",
+    # Los de la semana 3. Del carro va la carrocería: la imagen de la calcomanía dorada es solo su máscara.
+    "traje-miku-dorado",
+    "mochila-cofre-de-miku",
+    "corvette-zr1",
 ]
 LADO = 160  # px del lado mayor del ícono ya recortado
 
