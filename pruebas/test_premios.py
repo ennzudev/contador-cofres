@@ -196,4 +196,40 @@ async def caso_capturas():
 
 
 asyncio.run(caso_capturas())
+
+
+# 10. Lecturas cortas del letrero que se desvanece, y dos premios sin cofre seguidos (lecturas reales).
+async def caso_lecturas_cortas():
+    # Un artilugio sin cofre tuyo y, 4 s después, «DE»: no lo reemplaza ni es otro premio.
+    c, tmp = nuevo()
+    await letrero(c, 700, ["ENCONTRASTE", "ARTILVGIO DE", "ESPIRITU"])
+    await letrero(c, 704, ["ENCONTRASTE", "DE"])
+    await avanzar(c, 712)
+    p = premios(tmp)
+    revisar("«DE» después de un artilugio sin cofre: queda el artilugio", len(p) == 1 and p[0]["premio"] == "ARTILVGIO DE ESPIRITU", p)
+    shutil.rmtree(tmp, ignore_errors=True)
+    # «A DE» 0.8 s después de un artilugio, y «O» 3.4 s después de la «MOCHILA RETRO»: dos premios, no cuatro.
+    c, tmp = nuevo()
+    c.contar_cofre("COFRE", ZONA, 799.5)
+    await letrero(c, 800, ["ENCONTRASTE", "ARTILVGIO DE", "ESPIRITU"])
+    await letrero(c, 800.8, ["ENCONTRASTE", "A DE"])
+    c.contar_cofre("COFRE", ZONA, 841.5)
+    await letrero(c, 842, ["ENCONTRASTE", "MOCHILA RETRO"])
+    await letrero(c, 845.4, ["ENCONTRASTE", "O"])
+    p = premios(tmp)
+    capturas = sorted(f.name for f in (tmp / "capturas").glob("*"))
+    revisar("«A DE» y «O»: solo el artilugio y la mochila, sin capturas de más",
+            [f["premio"] for f in p] == ["ARTILVGIO DE ESPIRITU", "MOCHILA RETRO"] and len(capturas) == 2, (p, capturas))
+    shutil.rmtree(tmp, ignore_errors=True)
+    # Dos premios distintos sin cofre tuyo, a 2 s: los dos se registran.
+    c, tmp = nuevo()
+    await letrero(c, 900, ["ENCONTRASTE", "ARTILVGIO DE", "ESPIRITU"])
+    await letrero(c, 902, ["ENCONTRASTE", "MOCHILA RETRO"])
+    await avanzar(c, 920)
+    p = premios(tmp)
+    revisar("dos premios sin cofre seguidos: ninguno se pierde", [f["premio"] for f in p] == ["ARTILVGIO DE ESPIRITU", "MOCHILA RETRO"], p)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+asyncio.run(caso_lecturas_cortas())
 print(f"{sum(bien)}/{len(bien)} bien en total")

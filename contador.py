@@ -111,9 +111,11 @@ def tipo_de_cofre(linea: str) -> tuple[str, int] | None:
 
 
 def parecidos(a: str, b: str) -> bool:
-    """Dos lecturas del mismo letrero: casi el mismo texto, o una palabra larga en común («DORADA»)."""
+    """Dos lecturas del mismo letrero: casi el mismo texto, una palabra larga en común («DORADA»), o una
+    lectura a medias cuyas palabras caben todas en la otra («A DE» en «ARTILVGIO DE ESPIRITU»)."""
     largas = lambda t: set(re.findall(r"[A-Z]{5,}", t))  # noqa: E731
-    return SequenceMatcher(None, a, b).ratio() > 0.75 or bool(largas(a) & largas(b))
+    dentro = lambda x, y: all(p in y for p in x.split())  # noqa: E731
+    return SequenceMatcher(None, a, b).ratio() > 0.75 or bool(largas(a) & largas(b)) or dentro(a, b) or dentro(b, a)
 
 
 def pe_del_aviso(lineas: list[str]) -> int | None:
@@ -514,7 +516,9 @@ class Contador:
         palabras = " ".join(lineas[idx + 1 : idx + 3]).split()
         premio = " ".join(p for p in palabras if re.search(r"[^\W\d_]", p) and p == p.upper())
         clave = norm(premio)
-        if not premio:
+        # Al desvanecerse, el letrero se lee a medias («DE», «A DE», «O»): sin una palabra de tres letras
+        # no nombra ningún premio.
+        if not re.search(r"[A-Z]{3,}", clave):
             return
         cosmetico = self._cosmetico_de(clave)
         token = "PIRAT" in clave or "TIENDA" in clave  # aunque el OCR se coma alguna letra
@@ -564,6 +568,8 @@ class Contador:
         if self.ultimo_cofre and ahora - self.ultimo_cofre[1] <= VENTANA_PREMIO:
             self._registrar_premio(fila, self.ultimo_cofre[0], ahora)
         else:
+            if self.premio_pendiente:  # otro premio sin cofre sigue esperando: se registra, no se pisa
+                self._registrar_premio(self.premio_pendiente[0], None, ahora)
             self.premio_pendiente = (fila, ahora)
             if fila.get("token_pirata"):  # la alerta no espera
                 self.premio = self._franja(fila, None, ahora)
